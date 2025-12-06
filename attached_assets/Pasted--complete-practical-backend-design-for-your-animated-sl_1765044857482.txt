@@ -1,0 +1,265 @@
+ complete, practical backend design for your animated‑slides AI tutoring system, written for immediate implementation. I’ll cover architecture, components, data models, APIs, orchestration (agents + RAG), SVG generation options, validation, storage, scaling, security, observability, and sample outputs you can drop into tests.
+
+Architecture — single sentence
+A microservice backend that accepts teach me {topic} prompts → orchestrates LLM + RAG + agents to produce a validated LessonTimeline JSON and sanitized SVG assets (hosted on CDN) that the frontend animates as parametric slides.
+
+Core components
+API Gateway / Ingress
+
+POST /api/v1/sessions — create lesson session from prompt.
+
+GET /api/v1/sessions/{id} — fetch saved timeline & assets.
+
+Auth (JWT), rate-limits, request validation.
+
+Orchestrator (Crew / agent runner)
+
+Creates Agents and Tasks: parse_agent, retrieve_agent, timeline_agent, svg_agent, validator_agent.
+
+Drives task execution and error handling (sync/async via task queue).
+
+LLM Layer
+
+At least two LLM roles:
+
+LLM_small: classification/parse tasks (cheap, low-latency).
+
+LLM_author: timeline composition and explanations.
+
+Optional LLM_svg or a fine-tuned model for text→SVG when parametric templates aren’t enough.
+
+RAG / Vector DB
+
+Stores embeddings for:
+
+primitive templates/metadata (render contracts)
+
+domain reference docs, example timelines
+
+Retriever returns top-K docs to feed LLM prompts.
+
+Primitive Store
+
+Metadata store mapping domain:subdomain → allowed primitives, param schemas, fallback templates.
+
+SVG Generation Service
+
+Two tiers:
+
+Parametric generator (primary): programmatic templates that take parameters → deterministic SVG.
+
+Model-based generator (fallback): LLM or trained model returning <svg> blocks (sanitize strictly).
+
+CDN/S3 hosting for final asset URLs.
+
+Sanitizer & Validator
+
+lxml parser allowlist tags/attributes, strip scripts/on* handlers, require width/height.
+
+Timeline validator enforces schema, duration bounds, primitives allowed.
+
+Session & Persistence
+
+Store sessions/timelines (Postgres / DynamoDB) and caching in Redis.
+
+Asset metadata in DB; assets on S3 + CDN.
+
+Queue & Workers
+
+Long-running generation (complex SVGs) run as background jobs (RabbitMQ/SQS + worker pool).
+
+WebSocket/SSE for progress updates to frontend.
+
+Monitoring & Observability
+
+Metrics (Prometheus), logs (ELK), tracing (OpenTelemetry).
+
+LLM token/cost metrics.
+
+Orchestration flow (step‑by‑step)
+Client POST /api/v1/sessions with { prompt: "teach me Ohm's law" }.
+
+API validates request and enqueues a sync orchestration job (or returns session with status pending).
+
+parse_agent (LLM_small): returns strict JSON {domain, subdomain, topic, audience, duration_min, objectives}.
+
+retrieve_agent: queries PrimitiveStore & RAG for allowed primitives and reference docs.
+
+timeline_agent (LLM_author): given topic + allowed primitives + references → generates LessonTimeline JSON (strict schema).
+
+Validate timeline with validator_agent. If invalid, return validation_failed + errors.
+
+For each svg layer without assetUrl:
+
+If primitive is parametric → call Parametric Renderer (fast) → returns SVG → sanitize → upload CDN → attach assetUrl.
+
+Else call svg_agent (LLM_svg) → get <svg> block → sanitize → upload CDN → attach assetUrl.
+
+Re-validate timeline. If passes, persist session and return session_id + timeline.
+
+Frontend fetches timeline and animates.
+
+Agents & responsibilities
+parse_agent: cleanly extract intent + constraints; ALWAYS return only JSON.
+
+retrieve_agent: RAG + primitive metadata fetch.
+
+timeline_agent: produce LessonTimeline JSON using only allowed primitives (strict constraints: max segments, durations).
+
+svg_agent: produce or call renderer for SVG assets; return sanitized asset_url.
+
+validator_agent: run schema checks and primitive contract checks.
+
+Each Task should include expected_output for CI/runtime assertions.
+
+Data models (core JSON schemas — abbreviated)
+LessonTimeline (important fields)
+{
+  "lessonId": "string",
+  "metadata": { "title":"string","audience":"string","duration_min":6 },
+  "timeline": [
+    {
+      "id":"string",
+      "startOffset_ms":0,
+      "duration_ms":8000,
+      "layers":[
+        { "type":"svg","asset":"resistor.svg","assetUrl":"https://cdn/.../res.svg","position":{"x":100,"y":50} },
+        { "type":"primitive","primitive":"particleStream","params":{ "speed":0.6, "count":25 } },
+        { "type":"text","content":"V = I × R" }
+      ],
+      "learningObjective":"string",
+      "insertable": true
+    }
+  ],
+  "insertPoints":["seg-1"]
+}
+Primitive metadata
+{
+  "id":"resistor",
+  "type":"svg_template",
+  "params_schema": {"length":{"type":"number","default":100}, "color":{"type":"string","default":"#333"}},
+  "render_contract":"must accept width,height,x,y"
+}
+SVG generation: recommended approach
+Parametric-first
+
+Build a library of small templates (battery, resistor, graphs, arrow, particle stream).
+
+Templates accept parameters (width,height,stroke,color,counts) → return SVG string.
+
+Pros: deterministic, safe, tiny, easy to animate with CSS/SVG <animate>.
+
+LLM / model fallback
+
+Use a text→SVG model or instruct LLM to return <svg>...</svg> blocks.
+
+Very strict system prompts; post-LLM sanitize with allowlist.
+
+Use only when parametric templates can’t represent required visual.
+
+Sanitization rules
+
+Allowed tags: svg,g,rect,circle,ellipse,line,path,text,defs,use,animate,animateTransform.
+
+Remove <script>, on* attributes; disallow external href/xlink:href to untrusted hosts.
+
+Require width and height at root.
+
+API endpoints (example)
+POST /api/v1/sessions
+
+Body: { "prompt": "teach me Ohm's law", "user_id": "U123" }
+
+Response: {"session_id":"s_ab12","status":"ok","timeline":{...}} or {"status":"pending","session_id":"..."}
+
+GET /api/v1/sessions/{id} → {"session_id":"...","timeline":{...},"status":"ready"}
+
+GET /api/v1/assets/{asset_id}.svg (served via CDN/S3 presigned URL).
+
+Validation & testing
+Use JSON Schema for LessonTimeline; validate at runtime with jsonschema.
+
+Every Task gets expected_output for unit tests.
+
+Unit tests: mock ollm.call, cdn_tool.run, and PrimitiveStore to produce deterministic outputs.
+
+E2E tests: parametric generator only (no LLM).
+
+Persistence & caching
+DB: Postgres for sessions, metadata; store asset metadata.
+
+Blob: S3 + CloudFront CDN for SVGs.
+
+Cache: Redis for session lookups and reclaiming previously generated SVGs.
+
+Index: vector DB (Pinecone/Weaviate/Milvus) for RAG.
+
+Security & privacy
+Remove PII from prompts before logging.
+
+Rate-limit and authenticate requests.
+
+Sanitize all generated assets (no script tags, no external resources).
+
+Content filtering on LLM output for policy violations.
+
+Scaling / cost strategies
+Use cheap models for classification and expensive ones only for authoring.
+
+Parametric SVGs reduce LLM usage and cost.
+
+Cache timelines & SVGs aggressively (hash prompt → reuse).
+
+Offload heavy tasks to workers and return immediate session id with progress.
+
+Observability & metrics
+Track: agent latency, LLM token usage, validation failures, svg sanitization failures.
+
+Tracing across agent calls (OpenTelemetry).
+
+Alerts on error rates, slow LLM responses, high token consumption.
+
+Example expected outputs (use for unit tests)
+parse_agent.expected_output
+
+{"domain":"physics","subdomain":"circuits","topic":"Ohm's law","audience":"college","duration_min":6,"objectives":["Define V=IR","Visualize current"]}
+retrieve_agent.expected_output
+
+{"allowed_primitives":["battery.svg","resistor.svg","particleStream"]}
+timeline_agent.expected_output
+
+{"lessonId":"<ANY>","metadata":{"title":"<ANY>","audience":"<ANY>"},"timeline":"<ANY>","insertPoints":"<ANY>"}
+svg_agent.expected_output
+
+{"asset_url":"REGEX:^https?://.*cdn\\.example\\.com/.*\\.svg$"}
+Deployment blueprint
+Containerize backend services (Docker).
+
+Use Kubernetes (EKS/GKE) or serverless (Cloud Run + Cloud Tasks).
+
+Use an autoscaled worker pool for heavy generation.
+
+Use S3 + CloudFront for assets.
+
+Quick implementation plan (MVP, 6 sprints)
+Sprint 1 — Core API + crew runner, parse_agent (sandboxed LLM_small), primitive store.
+
+Sprint 2 — timeline_agent (LLM_author) + timeline JSON schema + validator.
+
+Sprint 3 — parametric SVG library + CDN in-memory stub + svg_agent bridge.
+
+Sprint 4 — RAG retrieval (vector DB) and primitive metadata store.
+
+Sprint 5 — background workers, queueing, progress via SSE, caching.
+
+Sprint 6 — monitoring, security hardening, E2E tests and cost tuning.
+
+If you want, I can do one of these next right now (I’ll produce it here in chat instantly):
+
+generate a full JSON Schema for LessonTimeline (recommended for strict validation),
+
+create unit-test fixtures (parse.json, primitives.json, timeline.json) and a pytest harness that mocks ollm.call,
+
+or produce a small parametric SVG template library (battery, resistor, particle stream) with example code (Python) to render SVG strings.
+
+Which of those should I build for you now?
