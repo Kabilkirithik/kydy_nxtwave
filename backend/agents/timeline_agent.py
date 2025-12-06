@@ -12,7 +12,7 @@ def create_timeline_agent() -> Agent:
         to create visually rich, educational animations.""",
         verbose=True,
         allow_delegation=False,
-        llm="gpt-4o"
+        llm="gemini/gemini-2.5-flash"
     )
 
 def create_timeline_task(

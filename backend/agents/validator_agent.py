@@ -12,7 +12,7 @@ def create_validator_agent() -> Agent:
         structure, valid primitives, safe SVG content, and educational quality.""",
         verbose=True,
         allow_delegation=False,
-        llm="gpt-4o"
+        llm="gemini/gemini-2.5-flash"
     )
 
 def create_validator_task(

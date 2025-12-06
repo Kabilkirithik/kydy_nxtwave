@@ -1,6 +1,24 @@
 from typing import Dict, Any, Optional
 import re
 
+def safe_number(value: Any, default: float = 0) -> float:
+    """Safely convert a value to a number, handling string inputs from LLM."""
+    if value is None:
+        return default
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            clean = ''.join(c for c in value if c.isdigit() or c in '.-')
+            return float(clean) if clean else default
+        except (ValueError, TypeError):
+            return default
+    return default
+
+def safe_int(value: Any, default: int = 0) -> int:
+    """Safely convert a value to an integer."""
+    return int(safe_number(value, default))
+
 class SVGSanitizer:
     ALLOWED_TAGS = {
         'svg', 'g', 'rect', 'circle', 'ellipse', 'line', 'path', 'polygon', 'polyline',
@@ -54,10 +72,10 @@ class SVGSanitizer:
 class SVGGenerator:
     @staticmethod
     def generate_battery(params: Dict[str, Any]) -> str:
-        width = params.get('width', 60)
-        height = params.get('height', 30)
-        voltage = params.get('voltage', '9V')
-        color = params.get('color', '#333')
+        width = safe_number(params.get('width'), 60)
+        height = safe_number(params.get('height'), 30)
+        voltage = str(params.get('voltage', '9V'))
+        color = str(params.get('color', '#333'))
         
         return f'''<svg width="{width + 20}" height="{height + 20}" xmlns="http://www.w3.org/2000/svg">
   <rect x="5" y="5" width="{width}" height="{height}" fill="none" stroke="{color}" stroke-width="2" rx="2"/>
@@ -70,10 +88,10 @@ class SVGGenerator:
 
     @staticmethod
     def generate_resistor(params: Dict[str, Any]) -> str:
-        width = params.get('width', 80)
-        height = params.get('height', 20)
-        resistance = params.get('resistance', '100Ω')
-        color = params.get('color', '#8B4513')
+        width = safe_number(params.get('width'), 80)
+        height = safe_number(params.get('height'), 20)
+        resistance = str(params.get('resistance', '100Ω'))
+        color = str(params.get('color', '#8B4513'))
         
         zigzag_points = []
         segments = 6
@@ -92,9 +110,9 @@ class SVGGenerator:
 
     @staticmethod
     def generate_wire(params: Dict[str, Any]) -> str:
-        length = params.get('length', 100)
-        thickness = params.get('thickness', 2)
-        color = params.get('color', '#333')
+        length = safe_number(params.get('length'), 100)
+        thickness = safe_number(params.get('thickness'), 2)
+        color = str(params.get('color', '#333'))
         
         return f'''<svg width="{length}" height="10" xmlns="http://www.w3.org/2000/svg">
   <line x1="0" y1="5" x2="{length}" y2="5" stroke="{color}" stroke-width="{thickness}"/>
@@ -102,10 +120,10 @@ class SVGGenerator:
 
     @staticmethod
     def generate_arrow(params: Dict[str, Any]) -> str:
-        length = params.get('length', 50)
-        direction = params.get('direction', 'right')
-        color = params.get('color', '#007bff')
-        label = params.get('label', '')
+        length = safe_number(params.get('length'), 50)
+        direction = str(params.get('direction', 'right'))
+        color = str(params.get('color', '#007bff'))
+        label = str(params.get('label', ''))
         
         if direction == 'right':
             path = f"M0,10 L{length-10},10 L{length-10},5 L{length},12.5 L{length-10},20 L{length-10},15 L0,15 Z"
@@ -125,13 +143,13 @@ class SVGGenerator:
 
     @staticmethod
     def generate_particle_stream(params: Dict[str, Any]) -> str:
-        speed = params.get('speed', 0.5)
-        count = params.get('count', 10)
-        color = params.get('color', '#00ff00')
-        direction = params.get('direction', 'right')
+        speed = safe_number(params.get('speed'), 0.5)
+        count = safe_int(params.get('count'), 10)
+        color = str(params.get('color', '#00ff00'))
+        direction = str(params.get('direction', 'right'))
         
         particles = []
-        for i in range(min(int(count), 20)):
+        for i in range(min(count, 20)):
             cx = 10 + (i * 15) % 180
             cy = 15 + (i * 7) % 20
             delay = i * 0.1
@@ -147,10 +165,10 @@ class SVGGenerator:
 
     @staticmethod
     def generate_graph(params: Dict[str, Any]) -> str:
-        width = params.get('width', 200)
-        height = params.get('height', 150)
-        xlabel = params.get('xlabel', 'x')
-        ylabel = params.get('ylabel', 'y')
+        width = safe_number(params.get('width'), 200)
+        height = safe_number(params.get('height'), 150)
+        xlabel = str(params.get('xlabel', 'x'))
+        ylabel = str(params.get('ylabel', 'y'))
         
         return f'''<svg width="{width + 40}" height="{height + 40}" xmlns="http://www.w3.org/2000/svg">
   <line x1="30" y1="10" x2="30" y2="{height + 10}" stroke="#333" stroke-width="2"/>
@@ -163,11 +181,11 @@ class SVGGenerator:
 
     @staticmethod
     def generate_text_box(params: Dict[str, Any]) -> str:
-        text = params.get('text', '')
-        font_size = params.get('fontSize', 16)
-        font_color = params.get('fontColor', '#000')
-        bg_color = params.get('backgroundColor', 'transparent')
-        padding = params.get('padding', 10)
+        text = str(params.get('text', ''))
+        font_size = safe_number(params.get('fontSize'), 16)
+        font_color = str(params.get('fontColor', '#000'))
+        bg_color = str(params.get('backgroundColor', 'transparent'))
+        padding = safe_number(params.get('padding'), 10)
         
         width = max(len(text) * font_size * 0.6 + padding * 2, 50)
         height = font_size + padding * 2
@@ -179,10 +197,10 @@ class SVGGenerator:
 
     @staticmethod
     def generate_capacitor(params: Dict[str, Any]) -> str:
-        width = params.get('width', 40)
-        height = params.get('height', 60)
-        capacitance = params.get('capacitance', '10μF')
-        color = params.get('color', '#333')
+        width = safe_number(params.get('width'), 40)
+        height = safe_number(params.get('height'), 60)
+        capacitance = str(params.get('capacitance', '10μF'))
+        color = str(params.get('color', '#333'))
         
         return f'''<svg width="{width + 20}" height="{height + 15}" xmlns="http://www.w3.org/2000/svg">
   <line x1="{width/2 + 10}" y1="0" x2="{width/2 + 10}" y2="{height/3}" stroke="{color}" stroke-width="2"/>
@@ -194,9 +212,9 @@ class SVGGenerator:
 
     @staticmethod
     def generate_ammeter(params: Dict[str, Any]) -> str:
-        size = params.get('size', 40)
-        value = params.get('value', '0A')
-        color = params.get('color', '#333')
+        size = safe_number(params.get('size'), 40)
+        value = str(params.get('value', '0A'))
+        color = str(params.get('color', '#333'))
         
         return f'''<svg width="{size + 10}" height="{size + 15}" xmlns="http://www.w3.org/2000/svg">
   <circle cx="{size/2 + 5}" cy="{size/2 + 5}" r="{size/2}" fill="none" stroke="{color}" stroke-width="2"/>
@@ -206,9 +224,9 @@ class SVGGenerator:
 
     @staticmethod
     def generate_voltmeter(params: Dict[str, Any]) -> str:
-        size = params.get('size', 40)
-        value = params.get('value', '0V')
-        color = params.get('color', '#333')
+        size = safe_number(params.get('size'), 40)
+        value = str(params.get('value', '0V'))
+        color = str(params.get('color', '#333'))
         
         return f'''<svg width="{size + 10}" height="{size + 15}" xmlns="http://www.w3.org/2000/svg">
   <circle cx="{size/2 + 5}" cy="{size/2 + 5}" r="{size/2}" fill="none" stroke="{color}" stroke-width="2"/>

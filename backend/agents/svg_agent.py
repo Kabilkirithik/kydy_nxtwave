@@ -12,7 +12,7 @@ def create_svg_agent() -> Agent:
         and scientific diagrams.""",
         verbose=True,
         allow_delegation=False,
-        llm="gpt-4o"
+        llm="gemini/gemini-2.5-flash"
     )
 
 def create_svg_task(agent: Agent, primitive_id: str, params: Dict[str, Any]) -> Task:

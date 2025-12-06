@@ -17,7 +17,7 @@ def create_retrieve_agent() -> Agent:
         and can provide relevant context for lesson creation.""",
         verbose=True,
         allow_delegation=False,
-        llm="gpt-4o"
+        llm="gemini/gemini-2.5-flash"
     )
 
 def create_retrieve_task(agent: Agent, parsed_intent: Dict[str, Any], available_primitives: List[str]) -> Task:

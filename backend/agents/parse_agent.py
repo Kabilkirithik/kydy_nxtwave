@@ -20,7 +20,7 @@ def create_parse_agent() -> Agent:
         from simple user prompts like 'teach me Ohm's law'.""",
         verbose=True,
         allow_delegation=False,
-        llm="gpt-4o"
+        llm="gemini/gemini-2.5-flash"
     )
 
 def create_parse_task(agent: Agent, prompt: str) -> Task:

@@ -1,7 +1,12 @@
 import os
 import json
 import sys
+import io
 from typing import Dict, Any, Optional
+from contextlib import redirect_stdout, redirect_stderr
+
+os.environ['CREWAI_TRACING_ENABLED'] = 'false'
+
 from crewai import Crew, Process
 
 from agents import (
@@ -169,8 +174,10 @@ class LessonOrchestrator:
         return None
 
 def run_orchestrator(prompt: str, session_id: str) -> str:
-    orchestrator = LessonOrchestrator()
-    result = orchestrator.generate_lesson(prompt, session_id)
+    captured_output = io.StringIO()
+    with redirect_stdout(captured_output), redirect_stderr(captured_output):
+        orchestrator = LessonOrchestrator()
+        result = orchestrator.generate_lesson(prompt, session_id)
     return json.dumps(result)
 
 if __name__ == "__main__":

@@ -27,19 +27,49 @@ async function runPythonOrchestrator(prompt: string, sessionId: string): Promise
     });
     
     pythonProcess.on("close", (code) => {
-      if (code !== 0) {
-        console.error("Python orchestrator stderr:", stderr);
-        reject(new Error(`Orchestrator exited with code ${code}: ${stderr}`));
-        return;
+      const allOutput = stdout + stderr;
+      
+      const jsonMatch = allOutput.match(/\{"session_id":\s*"[^"]+",\s*"status":\s*"[^"]+"[\s\S]*?\}(?=\s*$|\n|╭|╰)/);
+      if (jsonMatch) {
+        try {
+          const result = JSON.parse(jsonMatch[0]);
+          resolve(result);
+          return;
+        } catch (e) {
+        }
+      }
+      
+      const braceMatches = allOutput.match(/\{[^{}]*"timeline"[^{}]*\{[\s\S]*?\}\s*\}/g);
+      if (braceMatches) {
+        for (const match of braceMatches.reverse()) {
+          try {
+            const result = JSON.parse(match);
+            if (result.session_id || result.timeline) {
+              resolve(result);
+              return;
+            }
+          } catch (e) {
+          }
+        }
       }
       
       try {
-        const lines = stdout.trim().split("\n");
-        const lastLine = lines[lines.length - 1];
-        const result = JSON.parse(lastLine);
-        resolve(result);
+        const lines = allOutput.trim().split("\n");
+        for (let i = lines.length - 1; i >= 0; i--) {
+          const line = lines[i].trim();
+          if (line.startsWith("{") && line.endsWith("}")) {
+            const result = JSON.parse(line);
+            resolve(result);
+            return;
+          }
+        }
       } catch (e) {
-        reject(new Error(`Failed to parse orchestrator output: ${stdout}`));
+      }
+      
+      if (code !== 0) {
+        reject(new Error(`Orchestrator exited with code ${code}`));
+      } else {
+        reject(new Error(`Failed to parse orchestrator output`));
       }
     });
     
@@ -78,14 +108,20 @@ export async function registerRoutes(
       
       runPythonOrchestrator(prompt, session.id)
         .then(async (result) => {
+          console.log("Orchestrator result:", JSON.stringify(result).substring(0, 500));
           if (result.error) {
+            console.error("Orchestrator returned error:", result.error);
             await storage.updateSessionStatus(session.id, "error");
           } else if (result.timeline) {
+            console.log("Orchestrator generated timeline successfully");
             await storage.updateSessionTimeline(session.id, result.timeline);
+          } else {
+            console.error("Orchestrator returned no timeline and no error");
+            await storage.updateSessionStatus(session.id, "error");
           }
         })
         .catch(async (err) => {
-          console.error("Orchestrator error:", err);
+          console.error("Orchestrator catch error:", err.message || err);
           await storage.updateSessionStatus(session.id, "error");
         });
       
